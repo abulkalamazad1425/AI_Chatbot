@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Assistant - Login</title>
+  <meta name="description" content="AI-powered chatbot authentication">
+  <link rel="stylesheet" href="css/login.css" />
+</head>
+<body>
+  <div class="login-container">
+    <!-- Left Panel - Branding -->
+    <div class="login-panel left-panel">
+      <div class="branding">
+        <h1>AI Assistant</h1>
+        <p class="subtitle">LLM-Powered Chatbot</p>
+        <p class="description">Experience intelligent conversations powered by advanced language models. Ask anything, get instant answers.</p>
+        
+        <div class="features">
+          <div class="feature">
+            <span class="icon">💬</span>
+            <p>Intelligent Responses</p>
+          </div>
+          <div class="feature">
+            <span class="icon">💾</span>
+            <p>Chat History</p>
+          </div>
+          <div class="feature">
+            <span class="icon">🔐</span>
+            <p>Secure & Private</p>
+          </div>
+        </div>
+      </div>
+      <button id="themeToggleLarge" class="theme-toggle-large" aria-label="Toggle theme">
+        <svg class="sun-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1" x2="12" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/>
+          <line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+        <svg class="moon-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Right Panel - Auth Form -->
+    <div class="login-panel right-panel">
+      <div class="auth-container">
+        <!-- Tabs -->
+        <div class="auth-tabs">
+          <button class="tab-btn active" data-tab="login">Login</button>
+          <button class="tab-btn" data-tab="register">Sign Up</button>
+        </div>
+
+        <!-- Login Form -->
+        <div class="auth-tab active" id="login-tab">
+          <h2>Welcome Back</h2>
+          <p class="tab-description">Enter your credentials to access your chatbot</p>
+          
+          <form id="loginForm" class="auth-form">
+            <div class="form-group">
+              <label for="loginUsername">Username</label>
+              <input 
+                type="text" 
+                id="loginUsername" 
+                placeholder="Enter your username"
+                required
+              />
+            </div>
+            
+            <div class="form-group">
+              <label for="loginPassword">Password</label>
+              <input 
+                type="password" 
+                id="loginPassword" 
+                placeholder="Enter your password"
+                required
+              />
+            </div>
+            
+            <div id="loginError" class="error-message"></div>
+            
+            <button type="submit" class="submit-btn">Login</button>
+          </form>
+
+          <p class="tab-footer">
+            Don't have an account? <a href="#" class="tab-switch" data-tab="register">Sign Up</a>
+          </p>
+        </div>
+
+        <!-- Register Form -->
+        <div class="auth-tab" id="register-tab">
+          <h2>Create Account</h2>
+          <p class="tab-description">Join us to start your AI conversations</p>
+          
+          <form id="registerForm" class="auth-form">
+            <div class="form-group">
+              <label for="registerUsername">Username</label>
+              <input 
+                type="text" 
+                id="registerUsername" 
+                placeholder="Choose a username (min 3 chars)"
+                required
+              />
+            </div>
+            
+            <div class="form-group">
+              <label for="registerPassword">Password</label>
+              <input 
+                type="password" 
+                id="registerPassword" 
+                placeholder="Create a password (min 4 chars)"
+                required
+              />
+            </div>
+            
+            <div class="form-group">
+              <label for="registerPassword2">Confirm Password</label>
+              <input 
+                type="password" 
+                id="registerPassword2" 
+                placeholder="Confirm your password"
+                required
+              />
+            </div>
+            
+            <div id="registerError" class="error-message"></div>
+            
+            <button type="submit" class="submit-btn">Create Account</button>
+          </form>
+
+          <p class="tab-footer">
+            Already have an account? <a href="#" class="tab-switch" data-tab="login">Login</a>
+          </p>
+        </div>
+
+        <!-- Demo Info -->
+        <div class="demo-info">
+          <p><strong>💡 Demo Accounts:</strong></p>
+          <p>Username: <code>demo</code> | Password: <code>demo123</code></p>
+          <p style="font-size: 0.85em; margin-top: 8px; opacity: 0.8;">Or create your own account to get started!</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="config/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/login.js"></script>
+</body>
+</html>
