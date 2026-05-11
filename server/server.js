@@ -1,5 +1,5 @@
 // server/server.js
-// Express backend with JWT auth, MongoDB persistence, and Gemini chat proxying
+// Express backend with JWT auth, MongoDB persistence, and Ollama (Llama3) chat proxying
 
 const express = require('express');
 const cors = require('cors');
@@ -7,22 +7,17 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const path = require('path');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const fetch = require('node-fetch');
 require('dotenv').config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const MONGODB_URI = process.env.MONGODB_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
-const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'gemini-1.5-flash';
-const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
-
-if (!GEMINI_API_KEY) {
-  console.warn('⚠️  GEMINI_API_KEY is not set in .env — chat requests will fail until you set it.');
-}
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'llama3';
 
 if (!MONGODB_URI) {
   console.warn('⚠️  MONGODB_URI is not set in .env — the server cannot start without MongoDB.');
@@ -31,6 +26,8 @@ if (!MONGODB_URI) {
 if (!JWT_SECRET) {
   console.warn('⚠️  JWT_SECRET is not set in .env — authentication will fail until you set it.');
 }
+
+console.log(`📡 Ollama configured at: ${OLLAMA_URL}`);
 
 const userSchema = new mongoose.Schema(
   {
@@ -194,38 +191,41 @@ app.post('/api/chat', authRequired, async (req, res) => {
     const { model, messages, temperature, max_tokens } = req.body;
     const usedModel = model || DEFAULT_MODEL;
 
-    if (!genAI) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY not configured on server' });
-    }
-
-    const systemMessages = (messages || []).filter(message => message.role === 'system');
     const conversationMessages = (messages || []).filter(message => message.role !== 'system');
-    const systemInstruction = systemMessages.map(message => message.content).join('\n\n');
-    const geminiHistory = conversationMessages.slice(0, -1).map(message => ({
-      role: message.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: message.content }]
-    }));
     const lastMessage = conversationMessages[conversationMessages.length - 1];
 
     if (!lastMessage) {
       return res.status(400).json({ error: 'messages are required' });
     }
 
-    const modelInstance = genAI.getGenerativeModel({
-      model: usedModel,
-      ...(systemInstruction ? { systemInstruction } : {})
+    // Format messages for Ollama
+    const ollamaMessages = conversationMessages.map(message => ({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: message.content
+    }));
+
+    // Call Ollama API
+    const response = await fetch(`${OLLAMA_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: usedModel,
+        messages: ollamaMessages,
+        stream: false,
+        options: {
+          temperature: typeof temperature === 'number' ? temperature : 0.7,
+          num_predict: max_tokens || 1024
+        }
+      })
     });
 
-    const chat = modelInstance.startChat({
-      history: geminiHistory,
-      generationConfig: {
-        temperature: typeof temperature === 'number' ? temperature : 0.7,
-        maxOutputTokens: max_tokens || 1024
-      }
-    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Ollama error: ${response.status} - ${errorText}`);
+    }
 
-    const result = await chat.sendMessage(lastMessage.content);
-    const responseText = result.response.text();
+    const result = await response.json();
+    const responseText = result.message?.content || result.response || '';
 
     return res.json({
       choices: [
@@ -238,8 +238,8 @@ app.post('/api/chat', authRequired, async (req, res) => {
       ]
     });
   } catch (error) {
-    console.error('Error calling Gemini:', error?.message || error);
-    return res.status(500).json({ error: error.message || 'Gemini request failed' });
+    console.error('Error calling Ollama:', error?.message || error);
+    return res.status(500).json({ error: error.message || 'Ollama request failed. Ensure Ollama is running at ' + OLLAMA_URL });
   }
 });
 
@@ -285,7 +285,7 @@ app.delete('/api/history', authRequired, async (req, res) => {
 app.use('/', express.static(path.join(__dirname, '..')));
 
 async function startServer() {
-  if (!MONGODB_URI || !JWT_SECRET || !GEMINI_API_KEY) {
+  if (!MONGODB_URI || !JWT_SECRET) {
     console.error('Missing required environment variables. Check server/.env.');
     process.exit(1);
   }
@@ -295,9 +295,11 @@ async function startServer() {
 
   const port = process.env.PORT || 3000;
   app.listen(port, () => {
-    console.log(`Server listening on http://localhost:${port}`);
+    console.log(`\n🚀 Server listening on http://localhost:${port}`);
     console.log('✓ MongoDB connected');
     console.log('✓ JWT auth enabled');
+    console.log(`✓ Ollama (${DEFAULT_MODEL}) configured`);
+    console.log('\nDemo account: demo / demo123\n');
   });
 }
 
