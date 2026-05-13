@@ -39,9 +39,10 @@ const userSchema = new mongoose.Schema(
   { versionKey: false }
 );
 
-const chatHistorySchema = new mongoose.Schema(
+const conversationSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    title: { type: String, default: 'New Conversation' },
     messages: [
       {
         role: { type: String, required: true },
@@ -54,7 +55,7 @@ const chatHistorySchema = new mongoose.Schema(
 );
 
 const User = mongoose.model('User', userSchema);
-const ChatHistory = mongoose.model('ChatHistory', chatHistorySchema);
+const Conversation = mongoose.model('Conversation', conversationSchema);
 
 function normalizeUsername(username) {
   return String(username || '').trim().toLowerCase();
@@ -80,14 +81,6 @@ function authRequired(req, res, next) {
   }
 }
 
-async function ensureHistoryDocument(userId) {
-  return ChatHistory.findOneAndUpdate(
-    { user: userId },
-    { $setOnInsert: { user: userId, messages: [] } },
-    { upsert: true, new: true }
-  );
-}
-
 async function seedDemoAccount() {
   const username = 'demo';
   const password = 'demo123';
@@ -96,7 +89,7 @@ async function seedDemoAccount() {
   if (!existing) {
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.create({ username, passwordHash });
-    await ensureHistoryDocument(user._id);
+    await Conversation.create({ user: user._id, title: 'First Conversation' });
     console.log('✅ Demo account ready: demo / demo123');
   }
 }
@@ -129,7 +122,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.create({ username, passwordHash });
-    await ensureHistoryDocument(user._id);
+    await Conversation.create({ user: user._id, title: 'New Conversation' });
 
     const token = createToken(user);
     return res.status(201).json({ token, user: { id: user._id, username: user.username } });
@@ -160,7 +153,6 @@ app.post('/api/auth/login', async (req, res) => {
 
     user.lastLoginAt = new Date();
     await user.save();
-    await ensureHistoryDocument(user._id);
 
     const token = createToken(user);
     return res.json({ token, user: { id: user._id, username: user.username } });
@@ -169,6 +161,128 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(500).json({ error: 'Login failed' });
   }
 });
+
+// ==========================================
+// Conversation Routes
+// ==========================================
+
+// List all conversations for current user (newest first)
+app.get('/api/conversations', authRequired, async (req, res) => {
+  try {
+    const convos = await Conversation.find({ user: req.auth.sub })
+      .select('_id title createdAt messages')
+      .lean();
+
+    const list = convos
+      .map(c => ({
+        id: c._id,
+        title: c.title,
+        messageCount: c.messages.length,
+        lastMessage: c.messages.length > 0 ? c.messages[c.messages.length - 1].content.slice(0, 60) : '',
+        createdAt: c.createdAt
+      }))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.json({ conversations: list });
+  } catch (error) {
+    console.error('Conversations list error:', error);
+    return res.status(500).json({ error: 'Failed to list conversations' });
+  }
+});
+
+// Create a new conversation
+app.post('/api/conversations', authRequired, async (req, res) => {
+  try {
+    const title = String(req.body.title || 'New Conversation').slice(0, 100);
+    const convo = await Conversation.create({ user: req.auth.sub, title });
+    return res.status(201).json({ id: convo._id, title: convo.title, createdAt: convo.createdAt });
+  } catch (error) {
+    console.error('Create conversation error:', error);
+    return res.status(500).json({ error: 'Failed to create conversation' });
+  }
+});
+
+// Get messages for a specific conversation
+app.get('/api/conversations/:id', authRequired, async (req, res) => {
+  try {
+    const convo = await Conversation.findOne({ _id: req.params.id, user: req.auth.sub }).lean();
+    if (!convo) return res.status(404).json({ error: 'Conversation not found' });
+    return res.json({ messages: convo.messages, title: convo.title });
+  } catch (error) {
+    console.error('Get conversation error:', error);
+    return res.status(500).json({ error: 'Failed to load conversation' });
+  }
+});
+
+// Rename a conversation (auto-set title from first user message)
+app.patch('/api/conversations/:id', authRequired, async (req, res) => {
+  try {
+    const title = String(req.body.title || 'New Conversation').slice(0, 100);
+    const convo = await Conversation.findOneAndUpdate(
+      { _id: req.params.id, user: req.auth.sub },
+      { $set: { title } },
+      { new: true }
+    );
+    if (!convo) return res.status(404).json({ error: 'Conversation not found' });
+    return res.json({ id: convo._id, title: convo.title });
+  } catch (error) {
+    console.error('Rename conversation error:', error);
+    return res.status(500).json({ error: 'Failed to rename conversation' });
+  }
+});
+
+// Add a message to a conversation
+app.post('/api/conversations/:id/messages', authRequired, async (req, res) => {
+  try {
+    const { role, content } = req.body;
+    if (!role || !content) return res.status(400).json({ error: 'role and content are required' });
+
+    const convo = await Conversation.findOne({ _id: req.params.id, user: req.auth.sub });
+    if (!convo) return res.status(404).json({ error: 'Conversation not found' });
+
+    convo.messages.push({ role, content, timestamp: new Date() });
+
+    // Auto-title from first user message
+    if (convo.title === 'New Conversation' && role === 'user') {
+      convo.title = content.slice(0, 50) + (content.length > 50 ? '…' : '');
+    }
+
+    await convo.save();
+    return res.json({ success: true, title: convo.title });
+  } catch (error) {
+    console.error('Add message error:', error);
+    return res.status(500).json({ error: 'Failed to save message' });
+  }
+});
+
+// Clear messages in a conversation (keep the conversation)
+app.delete('/api/conversations/:id/messages', authRequired, async (req, res) => {
+  try {
+    await Conversation.findOneAndUpdate(
+      { _id: req.params.id, user: req.auth.sub },
+      { $set: { messages: [], title: 'New Conversation' } }
+    );
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Clear messages error:', error);
+    return res.status(500).json({ error: 'Failed to clear messages' });
+  }
+});
+
+// Delete a whole conversation
+app.delete('/api/conversations/:id', authRequired, async (req, res) => {
+  try {
+    await Conversation.findOneAndDelete({ _id: req.params.id, user: req.auth.sub });
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Delete conversation error:', error);
+    return res.status(500).json({ error: 'Failed to delete conversation' });
+  }
+});
+
+// ==========================================
+// Auth Routes (continued)
+// ==========================================
 
 app.get('/api/auth/me', authRequired, async (req, res) => {
   const user = await User.findById(req.auth.sub).select('_id username createdAt lastLoginAt');
@@ -243,44 +357,7 @@ app.post('/api/chat', authRequired, async (req, res) => {
   }
 });
 
-app.get('/api/history', authRequired, async (req, res) => {
-  try {
-    const history = await ChatHistory.findOne({ user: req.auth.sub }).lean();
-    return res.json({ messages: history?.messages || [] });
-  } catch (error) {
-    console.error('History fetch error:', error);
-    return res.status(500).json({ error: 'Failed to load history' });
-  }
-});
-
-app.post('/api/history/messages', authRequired, async (req, res) => {
-  try {
-    const { role, content } = req.body;
-
-    if (!role || !content) {
-      return res.status(400).json({ error: 'role and content are required' });
-    }
-
-    const history = await ensureHistoryDocument(req.auth.sub);
-    history.messages.push({ role, content, timestamp: new Date() });
-    await history.save();
-
-    return res.json({ success: true });
-  } catch (error) {
-    console.error('History save error:', error);
-    return res.status(500).json({ error: 'Failed to save history message' });
-  }
-});
-
-app.delete('/api/history', authRequired, async (req, res) => {
-  try {
-    await ChatHistory.updateOne({ user: req.auth.sub }, { $set: { messages: [] } }, { upsert: true });
-    return res.json({ success: true });
-  } catch (error) {
-    console.error('History clear error:', error);
-    return res.status(500).json({ error: 'Failed to clear history' });
-  }
-});
+// Legacy /api/history routes removed — use /api/conversations/:id routes instead.
 
 app.use('/', express.static(path.join(__dirname, '..')));
 

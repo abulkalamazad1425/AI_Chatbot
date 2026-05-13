@@ -8,16 +8,46 @@
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
+
+  <!-- Sidebar Overlay -->
+  <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+  <!-- Conversations Sidebar -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <h3>Conversations</h3>
+      <button id="newChatBtn" class="new-chat-btn" title="New conversation">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        New Chat
+      </button>
+    </div>
+    <div id="conversationList" class="conversation-list"></div>
+  </aside>
+
+  <!-- Main Chat Area -->
   <div class="chat-container">
     <div class="chat-header">
       <div class="header-content">
-        <div class="header-text">
-          <a href="home.html" style="text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 8px; margin-bottom: 6px; cursor: pointer;">
-            <span style="font-size: 1.5rem;">🤖</span>
-            <h2 style="margin: 0; display: inline;">AI Assistant</h2>
-          </a>
-          <p>POWERED BY LLAMA3</p>
-          <p id="userInfo" style="font-weight: 600; color: #667eea;"></p>
+        <div class="header-left">
+          <!-- Sidebar toggle -->
+          <button id="sidebarToggleBtn" class="sidebar-toggle-btn" title="Conversations">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <div class="header-text">
+            <a href="home.html" style="text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 8px; margin-bottom: 4px; cursor: pointer;">
+              <span style="font-size: 1.5rem;">🤖</span>
+              <h2 style="margin: 0; display: inline;">AI Assistant</h2>
+            </a>
+            <p>POWERED BY LLAMA3</p>
+            <p id="userInfo" style="font-weight: 600; color: #667eea;"></p>
+            <p id="conversationTitle" class="conversation-title-label"></p>
+          </div>
         </div>
         <div class="header-controls">
           <div class="user-menu">

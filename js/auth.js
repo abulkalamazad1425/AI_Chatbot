@@ -6,11 +6,16 @@
 class UserManager {
   constructor() {
     this.sessionKey = 'llm_chatbot_session';
+    this.conversationKey = 'llm_chatbot_conversation';
 
     // Backend sync (required). `API_CONFIG` is defined in config/api.js
     this.backendEnabled = (typeof API_CONFIG !== 'undefined') && API_CONFIG.useBackend;
     this.backendUrl = this.backendEnabled ? (API_CONFIG.backendUrl || '/api') : null;
   }
+
+  // ==========================================
+  // Session helpers
+  // ==========================================
 
   getAuthToken() {
     const session = this.getSession();
@@ -37,8 +42,29 @@ class UserManager {
 
   logout() {
     sessionStorage.removeItem(this.sessionKey);
+    sessionStorage.removeItem(this.conversationKey);
     return { success: true, message: 'Logged out successfully!' };
   }
+
+  // ==========================================
+  // Active conversation (persisted in sessionStorage)
+  // ==========================================
+
+  getCurrentConversationId() {
+    return sessionStorage.getItem(this.conversationKey) || null;
+  }
+
+  setCurrentConversationId(id) {
+    if (id) {
+      sessionStorage.setItem(this.conversationKey, id);
+    } else {
+      sessionStorage.removeItem(this.conversationKey);
+    }
+  }
+
+  // ==========================================
+  // Generic API request helper
+  // ==========================================
 
   async apiRequest(path, options = {}) {
     if (!this.backendEnabled || !this.backendUrl) {
@@ -76,6 +102,10 @@ class UserManager {
     return data;
   }
 
+  // ==========================================
+  // Auth: register / login
+  // ==========================================
+
   async registerUser(username, password) {
     try {
       const data = await this.apiRequest('/auth/register', {
@@ -112,21 +142,86 @@ class UserManager {
     }
   }
 
-  async saveChatMessageServer(role, content) {
-    await this.apiRequest('/history/messages', {
-      method: 'POST',
-      body: JSON.stringify({ role, content }),
-      headers: { 'Content-Type': 'application/json' }
-    });
+  // ==========================================
+  // Conversation management
+  // ==========================================
+
+  /** List all conversations, newest first */
+  async getConversations() {
+    const data = await this.apiRequest('/conversations', { method: 'GET' });
+    return data.conversations || [];
   }
 
+  /**
+   * Create a new conversation and make it active.
+   * @returns {object} { id, title, createdAt }
+   */
+  async createConversation(title = 'New Conversation') {
+    const data = await this.apiRequest('/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ title })
+    });
+    this.setCurrentConversationId(data.id);
+    return data;
+  }
+
+  /**
+   * Ensure there is an active conversation. If none is stored, pick the most
+   * recent one from the server (or create a fresh one).
+   * @returns {string} conversation id
+   */
+  async ensureConversation() {
+    let id = this.getCurrentConversationId();
+    if (id) return id;
+
+    const list = await this.getConversations();
+    if (list.length > 0) {
+      id = list[0].id;
+      this.setCurrentConversationId(id);
+    } else {
+      const convo = await this.createConversation('New Conversation');
+      id = convo.id;
+    }
+    return id;
+  }
+
+  /** Switch active conversation */
+  switchConversation(id) {
+    this.setCurrentConversationId(id);
+  }
+
+  /** Delete a conversation. If it was active, clear the stored id. */
+  async deleteConversation(id) {
+    await this.apiRequest(`/conversations/${id}`, { method: 'DELETE' });
+    if (this.getCurrentConversationId() === String(id)) {
+      this.setCurrentConversationId(null);
+    }
+  }
+
+  // ==========================================
+  // Chat history (scoped to active conversation)
+  // ==========================================
+
   async getChatHistoryServer() {
-    const data = await this.apiRequest('/history', { method: 'GET' });
+    const id = await this.ensureConversation();
+    const data = await this.apiRequest(`/conversations/${id}`, { method: 'GET' });
     return data.messages || [];
   }
 
+  async saveChatMessageServer(role, content) {
+    const id = await this.ensureConversation();
+    const data = await this.apiRequest(`/conversations/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ role, content })
+    });
+    // If server auto-titled the conversation, return the new title
+    return data.title || null;
+  }
+
   async clearChatHistoryServer() {
-    return this.apiRequest('/history', { method: 'DELETE' });
+    const id = this.getCurrentConversationId();
+    if (!id) return;
+    return this.apiRequest(`/conversations/${id}/messages`, { method: 'DELETE' });
   }
 }
 

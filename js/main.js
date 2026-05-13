@@ -6,7 +6,6 @@
 // Check if user is logged in
 document.addEventListener('DOMContentLoaded', async function() {
   if (!userManager.isLoggedIn()) {
-    // Redirect to login if not authenticated
     window.location.href = 'login.html';
     return;
   }
@@ -17,19 +16,22 @@ document.addEventListener('DOMContentLoaded', async function() {
 // Initialize the application
 async function initializeApp() {
   const currentUser = userManager.getCurrentUsername();
-  
+
   // Setup UI elements
   setupUIElements();
-  
+
   // Display user information
   displayUserInfo(currentUser);
-  
-  // Load user's chat history (server if available)
+
+  // Load conversations sidebar
+  await refreshSidebar();
+
+  // Load current conversation messages
   await loadChatHistory(currentUser);
-  
+
   // Setup event listeners
   setupEventListeners();
-  
+
   // Focus input
   userInput.focus();
 }
@@ -46,6 +48,12 @@ function setupUIElements() {
   window.clearHistoryBtn = document.getElementById('clearHistoryBtn');
   window.userDisplay = document.getElementById('userDisplay');
   window.statsText = document.getElementById('statsText');
+  window.sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+  window.sidebar = document.getElementById('sidebar');
+  window.sidebarOverlay = document.getElementById('sidebarOverlay');
+  window.newChatBtn = document.getElementById('newChatBtn');
+  window.conversationList = document.getElementById('conversationList');
+  window.conversationTitle = document.getElementById('conversationTitle');
 }
 
 // Display user information
@@ -61,43 +69,227 @@ function updateStats(username) {
   document.getElementById('statsText').textContent = `${totalMessages} messages`;
 }
 
-// Load chat history from the backend
-async function loadChatHistory(username) {
-  // Clear existing messages (except initial greeting)
-  const messages = messagesDiv.querySelectorAll('.message');
-  messages.forEach(msg => {
-    if (!msg.textContent.includes('How can I assist you')) {
-      msg.remove();
-    }
-  });
+// ==========================================
+// Sidebar / Conversation list
+// ==========================================
 
-  // Initialize conversation history with system message
+async function refreshSidebar() {
+  try {
+    const conversations = await userManager.getConversations();
+    renderConversationList(conversations);
+  } catch (err) {
+    console.error('Failed to load conversations:', err);
+  }
+}
+
+function renderConversationList(conversations) {
+  if (!conversationList) return;
+  conversationList.innerHTML = '';
+
+  const activeId = String(userManager.getCurrentConversationId() || '');
+
+  if (conversations.length === 0) {
+    conversationList.innerHTML = '<div class="no-convos">No conversations yet</div>';
+    return;
+  }
+
+  conversations.forEach(convo => {
+    const item = document.createElement('div');
+    item.className = 'convo-item' + (String(convo.id) === activeId ? ' active' : '');
+    item.dataset.id = convo.id;
+
+    const textDiv = document.createElement('div');
+    textDiv.className = 'convo-item-text';
+
+    const titleSpan = document.createElement('span');
+    titleSpan.className = 'convo-title';
+    titleSpan.textContent = convo.title || 'New Conversation';
+
+    const metaSpan = document.createElement('span');
+    metaSpan.className = 'convo-meta';
+    metaSpan.textContent = `${convo.messageCount} msg${convo.messageCount !== 1 ? 's' : ''}`;
+
+    textDiv.appendChild(titleSpan);
+    textDiv.appendChild(metaSpan);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'convo-delete-btn';
+    deleteBtn.title = 'Delete conversation';
+    deleteBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
+    deleteBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await handleDeleteConversation(convo.id);
+    });
+
+    item.appendChild(textDiv);
+    item.appendChild(deleteBtn);
+
+    item.addEventListener('click', () => handleSwitchConversation(convo.id));
+    conversationList.appendChild(item);
+  });
+}
+
+function openSidebar() {
+  sidebar.classList.add('open');
+  sidebarOverlay.classList.add('show');
+  sidebarToggleBtn.classList.add('active');
+}
+
+function closeSidebar() {
+  sidebar.classList.remove('open');
+  sidebarOverlay.classList.remove('show');
+  sidebarToggleBtn.classList.remove('active');
+}
+
+function toggleSidebar() {
+  if (sidebar.classList.contains('open')) {
+    closeSidebar();
+  } else {
+    openSidebar();
+  }
+}
+
+// ==========================================
+// New chat / switch conversation
+// ==========================================
+
+async function handleNewChat() {
+  closeSidebar();
+  // Create a brand-new conversation on the server
+  try {
+    await userManager.createConversation('New Conversation');
+  } catch (err) {
+    console.error('Failed to create conversation:', err);
+    return;
+  }
+
+  // Reset in-memory history
+  conversationHistory = [
+    { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
+  ];
+
+  // Clear chat UI
+  clearMessagesUI();
+  updateConversationTitle('New Conversation');
+  updateStats(userManager.getCurrentUsername());
+
+  // Refresh sidebar to show the new entry
+  await refreshSidebar();
+  userInput.focus();
+}
+
+async function handleSwitchConversation(id) {
+  closeSidebar();
+  userManager.switchConversation(id);
+
+  // Reset in-memory history
+  conversationHistory = [
+    { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
+  ];
+
+  await loadChatHistory(userManager.getCurrentUsername());
+  await refreshSidebar();
+  userInput.focus();
+}
+
+async function handleDeleteConversation(id) {
+  if (!confirm('Delete this conversation? This cannot be undone.')) return;
+
+  const wasActive = String(userManager.getCurrentConversationId()) === String(id);
+  await userManager.deleteConversation(id);
+
+  if (wasActive) {
+    // After deletion, ensure a conversation exists
+    userManager.setCurrentConversationId(null);
+    conversationHistory = [
+      { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
+    ];
+    clearMessagesUI();
+    updateConversationTitle('');
+    await refreshSidebar();
+
+    // Auto-load newest remaining conversation (if any)
+    const remaining = await userManager.getConversations();
+    if (remaining.length > 0) {
+      await handleSwitchConversation(remaining[0].id);
+    } else {
+      // No conversations left — create a fresh one
+      await handleNewChat();
+    }
+  } else {
+    await refreshSidebar();
+  }
+}
+
+// ==========================================
+// Chat loading
+// ==========================================
+
+async function loadChatHistory(username) {
+  clearMessagesUI();
+
   conversationHistory = [
     { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
   ];
 
   const history = await userManager.getChatHistoryServer();
 
-  // Load all previous messages
   if (history.length > 0) {
     history.forEach(msg => {
-      // Add to display
       addMessage(msg.content, msg.role);
-      // Add to conversation history (skip system message)
       if (msg.role !== 'system') {
         conversationHistory.push({ role: msg.role, content: msg.content });
       }
     });
+
+    // Show the conversation title in header
+    const conversations = await userManager.getConversations();
+    const activeId = String(userManager.getCurrentConversationId());
+    const active = conversations.find(c => String(c.id) === activeId);
+    if (active) updateConversationTitle(active.title);
   }
 
   updateStats(username);
 }
 
-// Setup event listeners
+function clearMessagesUI() {
+  // Remove all messages except the initial welcome message
+  const messages = messagesDiv.querySelectorAll('.message');
+  messages.forEach(msg => {
+    if (!msg.textContent.includes('Welcome to AI Assistant')) {
+      msg.remove();
+    }
+  });
+  // If welcome message was removed earlier, re-add it
+  if (messagesDiv.querySelectorAll('.message').length === 0) {
+    const welcome = document.createElement('div');
+    welcome.className = 'message ai';
+    welcome.innerHTML = '<strong>👋 Welcome to AI Assistant!</strong><br><br>I\'m powered by <strong>Llama3</strong>, an advanced language model running locally on Ollama. Start typing to begin our conversation!';
+    messagesDiv.appendChild(welcome);
+  }
+}
+
+function updateConversationTitle(title) {
+  if (conversationTitle) {
+    conversationTitle.textContent = title || '';
+  }
+}
+
+// ==========================================
+// Event listeners
+// ==========================================
+
 function setupEventListeners() {
   // Theme toggle
   initTheme();
   themeToggle.addEventListener('click', toggleTheme);
+
+  // Sidebar toggle
+  sidebarToggleBtn.addEventListener('click', toggleSidebar);
+  sidebarOverlay.addEventListener('click', closeSidebar);
+
+  // New chat button
+  newChatBtn.addEventListener('click', handleNewChat);
 
   // User menu
   userMenuBtn.addEventListener('click', toggleUserMenu);
@@ -136,21 +328,21 @@ function handleLogout() {
   }
 }
 
-// Handle clear history
+// Handle clear history (clears messages of current conversation)
 async function handleClearHistory() {
-  if (confirm('This will delete all your chat history. Are you sure?')) {
+  if (confirm('This will delete all messages in the current conversation. Are you sure?')) {
     const username = userManager.getCurrentUsername();
     await userManager.clearChatHistoryServer();
 
     conversationHistory = [
       { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
     ];
-    
-    // Clear UI
-    await loadChatHistory(username);
+
+    clearMessagesUI();
+    updateConversationTitle('New Conversation');
     updateStats(username);
-    
-    // Show notification
+    await refreshSidebar();
+
     addMessage('✨ Chat history cleared! Start a new conversation.', 'ai');
   }
 }
@@ -183,7 +375,7 @@ let conversationHistory = [
 function addMessage(content, role) {
   const msgDiv = document.createElement('div');
   msgDiv.className = `message ${role}`;
-  
+
   if (role === 'typing') {
     msgDiv.className = 'message ai typing';
     msgDiv.innerHTML = '<span class="typing-dots"></span>';
@@ -207,12 +399,12 @@ function addMessage(content, role) {
       // Line breaks
       .replace(/\n\n/g, '<br><br>')
       .replace(/\n/g, '<br>');
-    
+
     msgDiv.innerHTML = formatted;
   }
-  
+
   messagesDiv.appendChild(msgDiv);
-  
+
   // Smooth scroll to bottom
   setTimeout(() => {
     messagesDiv.scrollTo({
@@ -254,8 +446,12 @@ async function callLLM() {
       const reply = data.choices[0].message.content.trim();
       addMessage(reply, 'ai');
       conversationHistory.push({ role: 'assistant', content: reply });
-      
-      await userManager.saveChatMessageServer('assistant', reply);
+
+      const newTitle = await userManager.saveChatMessageServer('assistant', reply);
+      if (newTitle) {
+        updateConversationTitle(newTitle);
+        await refreshSidebar();
+      }
       updateStats(userManager.getCurrentUsername());
     } else {
       addMessage('Empty response. Check console.', 'ai');
@@ -276,10 +472,15 @@ async function sendMessage() {
 
   addMessage(text, 'user');
   conversationHistory.push({ role: 'user', content: text });
-  
-  await userManager.saveChatMessageServer('user', text);
+
+  // Save user message; server may auto-title the conversation from it
+  const newTitle = await userManager.saveChatMessageServer('user', text);
+  if (newTitle) {
+    updateConversationTitle(newTitle);
+    await refreshSidebar();
+  }
   updateStats(userManager.getCurrentUsername());
-  
+
   userInput.value = '';
   await callLLM();
 }
