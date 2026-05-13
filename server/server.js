@@ -122,7 +122,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.create({ username, passwordHash });
-    await ensureHistoryDocument(user._id);
+    await Conversation.create({ user: user._id, title: 'New Conversation' });
 
     const token = createToken(user);
     return res.status(201).json({ token, user: { id: user._id, username: user.username } });
@@ -153,7 +153,6 @@ app.post('/api/auth/login', async (req, res) => {
 
     user.lastLoginAt = new Date();
     await user.save();
-    await ensureHistoryDocument(user._id);
 
     const token = createToken(user);
     return res.json({ token, user: { id: user._id, username: user.username } });
