@@ -208,6 +208,20 @@ class UserManager {
     return data.messages || [];
   }
 
+  /** Fetch messages from any conversation by id (used by @ mention context injection) */
+  async getConversationMessages(id) {
+    const data = await this.apiRequest(`/conversations/${id}`, { method: 'GET' });
+    return data.messages || [];
+  }
+
+  /** Rename a conversation */
+  async renameConversation(id, title) {
+    return this.apiRequest(`/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title })
+    });
+  }
+
   async saveChatMessageServer(role, content) {
     const id = await this.ensureConversation();
     const data = await this.apiRequest(`/conversations/${id}/messages`, {

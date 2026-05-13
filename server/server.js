@@ -305,16 +305,18 @@ app.post('/api/chat', authRequired, async (req, res) => {
     const { model, messages, temperature, max_tokens } = req.body;
     const usedModel = model || DEFAULT_MODEL;
 
-    const conversationMessages = (messages || []).filter(message => message.role !== 'system');
-    const lastMessage = conversationMessages[conversationMessages.length - 1];
+    const allMessages = messages || [];
 
-    if (!lastMessage) {
+    // Validate: at least one non-system message must exist
+    const lastUserMessage = allMessages.filter(m => m.role !== 'system').slice(-1)[0];
+    if (!lastUserMessage) {
       return res.status(400).json({ error: 'messages are required' });
     }
 
-    // Format messages for Ollama
-    const ollamaMessages = conversationMessages.map(message => ({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
+    // Format messages for Ollama — preserve system, assistant, user roles
+    // This allows @-injected context (sent as system role) to reach the model
+    const ollamaMessages = allMessages.map(message => ({
+      role: ['assistant', 'system'].includes(message.role) ? message.role : 'user',
       content: message.content
     }));
 

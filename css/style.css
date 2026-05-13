@@ -755,3 +755,188 @@ body {
     font-size: 16px; /* Prevents zoom on iOS */
   }
 }
+
+/* ==========================================
+   @ Mention Popup
+   ========================================== */
+
+.input-area {
+  position: relative;
+}
+
+.at-mention-popup {
+  display: none;
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-container);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(102, 126, 234, 0.1);
+  overflow: hidden;
+  max-height: 280px;
+  overflow-y: auto;
+  animation: atMentionSlideUp 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.at-mention-popup.open {
+  display: block;
+}
+
+@keyframes atMentionSlideUp {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.at-mention-popup::-webkit-scrollbar { width: 5px; }
+.at-mention-popup::-webkit-scrollbar-track { background: transparent; }
+.at-mention-popup::-webkit-scrollbar-thumb { background: var(--text-tertiary); border-radius: 5px; }
+
+/* Header label inside popup */
+.at-mention-popup::before {
+  content: '↑ Reference a conversation';
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-tertiary);
+  padding: 8px 14px 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.at-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.14s ease;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.at-mention-item:last-child {
+  border-bottom: none;
+}
+
+.at-mention-item:hover,
+.at-mention-item.highlighted {
+  background: rgba(102, 126, 234, 0.08);
+}
+
+.at-mention-item.highlighted {
+  background: rgba(102, 126, 234, 0.13);
+}
+
+.at-mention-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.at-mention-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.at-mention-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.at-mention-item.highlighted .at-mention-title {
+  color: #667eea;
+}
+
+.at-mention-meta {
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+}
+
+/* ==========================================
+   Context Inject Tag (shown in chat area)
+   ========================================== */
+
+.context-inject-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.08));
+  border: 1px solid rgba(102, 126, 234, 0.25);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  animation: messageSlideIn 0.3s ease;
+  max-width: 90%;
+  margin: 0 auto;
+}
+
+.context-inject-icon {
+  font-size: 0.9rem;
+}
+
+.context-inject-tag strong {
+  color: #667eea;
+  font-weight: 600;
+}
+
+.context-inject-count {
+  opacity: 0.6;
+  font-size: 0.75rem;
+}
+
+/* ==========================================
+   Sidebar: Rename Button & Inline Input
+   ========================================== */
+
+.convo-rename-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.15s ease;
+}
+
+.convo-item:hover .convo-rename-btn {
+  opacity: 1;
+}
+
+.convo-rename-btn:hover {
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.convo-rename-input {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-container);
+  border: 1.5px solid #667eea;
+  border-radius: 6px;
+  padding: 2px 8px;
+  outline: none;
+  width: 100%;
+  min-width: 0;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+  transition: box-shadow 0.15s ease;
+}
+
+.convo-rename-input:focus {
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.22);
+}
