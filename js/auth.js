@@ -173,16 +173,9 @@ class UserManager {
   async ensureConversation() {
     let id = this.getCurrentConversationId();
     if (id) return id;
-
-    const list = await this.getConversations();
-    if (list.length > 0) {
-      id = list[0].id;
-      this.setCurrentConversationId(id);
-    } else {
-      const convo = await this.createConversation('New Conversation');
-      id = convo.id;
-    }
-    return id;
+    // No active conversation — create a fresh one on the first message send
+    const convo = await this.createConversation('New Conversation');
+    return convo.id;
   }
 
   /** Switch active conversation */
@@ -203,7 +196,9 @@ class UserManager {
   // ==========================================
 
   async getChatHistoryServer() {
-    const id = await this.ensureConversation();
+    const id = this.getCurrentConversationId();
+    // No active conversation yet — return empty so the user sees a fresh screen
+    if (!id) return [];
     const data = await this.apiRequest(`/conversations/${id}`, { method: 'GET' });
     return data.messages || [];
   }

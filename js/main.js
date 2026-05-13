@@ -153,36 +153,42 @@ function toggleSidebar() {
 // New chat / switch conversation
 // ==========================================
 
+/** True if the current in-memory conversation has no user/ai messages yet */
+function isCurrentConversationEmpty() {
+  return conversationHistory.filter(m => m.role !== 'system').length === 0;
+}
+
+/** Delete the current conversation from the server if it has no messages */
+async function deleteCurrentIfEmpty() {
+  const currentId = userManager.getCurrentConversationId();
+  if (currentId && isCurrentConversationEmpty()) {
+    await userManager.deleteConversation(currentId);
+  }
+}
 async function handleNewChat() {
   closeSidebar();
-  // Create a brand-new conversation on the server
-  try {
-    await userManager.createConversation('New Conversation');
-  } catch (err) {
-    console.error('Failed to create conversation:', err);
-    return;
-  }
+  // Clean up if the current conversation is still empty
+  await deleteCurrentIfEmpty();
+  // Clear the active id — conversation will be created on the first message
+  userManager.setCurrentConversationId(null);
 
-  // Reset in-memory history
   conversationHistory = [
     { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
   ];
 
-  // Clear chat UI
   clearMessagesUI();
-  updateConversationTitle('New Conversation');
+  updateConversationTitle('');
   updateStats(userManager.getCurrentUsername());
-
-  // Refresh sidebar to show the new entry
   await refreshSidebar();
   userInput.focus();
 }
 
 async function handleSwitchConversation(id) {
   closeSidebar();
+  // Clean up current conversation if it's still empty
+  await deleteCurrentIfEmpty();
   userManager.switchConversation(id);
 
-  // Reset in-memory history
   conversationHistory = [
     { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
   ];

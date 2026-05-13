@@ -3,7 +3,7 @@
 // Login Page Functionality
 // ==========================================
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
   if (userManager.isLoggedIn()) {
     window.location.href = 'index.html';
     return;
@@ -111,6 +111,9 @@ async function handleLogin(e) {
   }
 
   console.log('✅ Login successful!');
+
+  // Clear active conversation — a new one is created lazily on the first message
+  userManager.setCurrentConversationId(null);
 
   setTimeout(() => {
     window.location.href = 'index.html';
