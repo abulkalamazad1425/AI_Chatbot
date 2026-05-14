@@ -1,179 +1,163 @@
-// js/main.js
-// ==========================================
-// AI Chatbot Main Application (backend-enabled)
-// ==========================================
+// js/main.js — ChatGPT-like UI with cross-session @ context injection
 
-// Check if user is logged in
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', async function () {
   if (!userManager.isLoggedIn()) {
     window.location.href = 'login.html';
     return;
   }
-
   await initializeApp();
 });
 
-// Initialize the application
+// ─── Globals ────────────────────────────────────────────────────────────────
+let conversationHistory = [
+  { role: 'system', content: 'You are a helpful, concise AI assistant. Use markdown when useful.' }
+];
+let injectedContextIds = [];   // [{id, title}]
+let allConversations = [];     // cache for @ mention lookup
+let mentionQuery = '';
+let mentionActive = false;
+
+// ─── DOM refs ────────────────────────────────────────────────────────────────
+let messagesDiv, userInput, sendBtn, emptyState,
+    sidebar, sidebarOverlay, sidebarToggleBtn, newChatBtn, conversationList,
+    sidebarUserPanel, sidebarMenuBtn, sidebarDropdown, sidebarUsername, userAvatarSmall,
+    clearHistoryBtn, themeToggle, themeToggleBtn, themeLabel, logoutBtn,
+    contextChipsBar, mentionDropdown, mentionList;
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
 async function initializeApp() {
-  const currentUser = userManager.getCurrentUsername();
+  messagesDiv        = document.getElementById('messages');
+  userInput          = document.getElementById('userInput');
+  sendBtn            = document.getElementById('sendBtn');
+  emptyState         = document.getElementById('emptyState');
+  sidebar            = document.getElementById('sidebar');
+  sidebarOverlay     = document.getElementById('sidebarOverlay');
+  sidebarToggleBtn   = document.getElementById('sidebarToggleBtn');
+  newChatBtn         = document.getElementById('newChatBtn');
+  conversationList   = document.getElementById('conversationList');
+  sidebarUserPanel   = document.getElementById('sidebarUserPanel');
+  sidebarMenuBtn     = document.getElementById('sidebarMenuBtn');
+  sidebarDropdown    = document.getElementById('sidebarDropdown');
+  sidebarUsername    = document.getElementById('sidebarUsername');
+  userAvatarSmall    = document.getElementById('userAvatarSmall');
+  clearHistoryBtn    = document.getElementById('clearHistoryBtn');
+  themeToggle        = document.getElementById('themeToggle');
+  themeToggleBtn     = document.getElementById('themeToggleBtn');
+  themeLabel         = document.getElementById('themeLabel');
+  logoutBtn          = document.getElementById('logoutBtn');
+  contextChipsBar    = document.getElementById('contextChipsBar');
+  mentionDropdown    = document.getElementById('mentionDropdown');
+  mentionList        = document.getElementById('mentionList');
 
-  // Setup UI elements
-  setupUIElements();
-
-  // Display user information
-  displayUserInfo(currentUser);
-
-  // Load conversations sidebar
+  initTheme();
+  setUserDisplay();
   await refreshSidebar();
-
-  // Load current conversation messages
-  await loadChatHistory(currentUser);
-
-  // Setup event listeners
+  await loadChatHistory();
   setupEventListeners();
-
-  // Focus input
   userInput.focus();
 }
 
-// Setup UI elements
-function setupUIElements() {
-  window.messagesDiv = document.getElementById('messages');
-  window.userInput = document.getElementById('userInput');
-  window.sendBtn = document.getElementById('sendBtn');
-  window.themeToggle = document.getElementById('themeToggle');
-  window.userMenuBtn = document.getElementById('userMenuBtn');
-  window.userDropdown = document.getElementById('userDropdown');
-  window.logoutBtn = document.getElementById('logoutBtn');
-  window.clearHistoryBtn = document.getElementById('clearHistoryBtn');
-  window.userDisplay = document.getElementById('userDisplay');
-  window.statsText = document.getElementById('statsText');
-  window.sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
-  window.sidebar = document.getElementById('sidebar');
-  window.sidebarOverlay = document.getElementById('sidebarOverlay');
-  window.newChatBtn = document.getElementById('newChatBtn');
-  window.conversationList = document.getElementById('conversationList');
-  window.conversationTitle = document.getElementById('conversationTitle');
+// ─── Theme ────────────────────────────────────────────────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem('theme') || 'dark';
+  applyTheme(saved);
 }
 
-// Display user information
-function displayUserInfo(username) {
-  document.getElementById('userInfo').textContent = `👤 Logged in as: ${username}`;
-  document.getElementById('userDisplay').textContent = username.charAt(0).toUpperCase() + username.slice(1);
-  updateStats(username);
-}
-
-// Update user statistics
-function updateStats(username) {
-  const totalMessages = conversationHistory.filter(msg => msg.role !== 'system').length;
-  document.getElementById('statsText').textContent = `${totalMessages} messages`;
-}
-
-// ==========================================
-// Sidebar / Conversation list
-// ==========================================
-
-async function refreshSidebar() {
-  try {
-    const conversations = await userManager.getConversations();
-    renderConversationList(conversations);
-  } catch (err) {
-    console.error('Failed to load conversations:', err);
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('theme', theme);
+  if (themeLabel) {
+    themeLabel.textContent = theme === 'dark' ? 'Light mode' : 'Dark mode';
   }
 }
 
-function renderConversationList(conversations) {
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+// ─── User Display ────────────────────────────────────────────────────────────
+function setUserDisplay() {
+  const username = userManager.getCurrentUsername() || 'User';
+  if (sidebarUsername) sidebarUsername.textContent = username.charAt(0).toUpperCase() + username.slice(1);
+  if (userAvatarSmall) userAvatarSmall.textContent = username.charAt(0).toUpperCase();
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+function openSidebar() {
+  sidebar.classList.add('open');
+  sidebarOverlay.classList.add('show');
+}
+
+function closeSidebar() {
+  sidebar.classList.remove('open');
+  sidebarOverlay.classList.remove('show');
+}
+
+function toggleSidebar() {
+  sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+}
+
+// ─── Conversation List ────────────────────────────────────────────────────────
+async function refreshSidebar() {
+  try {
+    allConversations = await userManager.getConversations();
+    renderConversationList(allConversations);
+  } catch (e) {
+    console.error('Sidebar load failed:', e);
+  }
+}
+
+function renderConversationList(convos) {
   if (!conversationList) return;
   conversationList.innerHTML = '';
-
   const activeId = String(userManager.getCurrentConversationId() || '');
 
-  if (conversations.length === 0) {
+  if (!convos.length) {
     conversationList.innerHTML = '<div class="no-convos">No conversations yet</div>';
     return;
   }
 
-  conversations.forEach(convo => {
+  convos.forEach(c => {
     const item = document.createElement('div');
-    item.className = 'convo-item' + (String(convo.id) === activeId ? ' active' : '');
-    item.dataset.id = convo.id;
+    item.className = 'convo-item' + (String(c.id) === activeId ? ' active' : '');
+    item.dataset.id = c.id;
 
     const textDiv = document.createElement('div');
     textDiv.className = 'convo-item-text';
 
     const titleSpan = document.createElement('span');
     titleSpan.className = 'convo-title';
-    titleSpan.textContent = convo.title || 'New Conversation';
+    titleSpan.textContent = c.title || 'New Conversation';
 
     const metaSpan = document.createElement('span');
     metaSpan.className = 'convo-meta';
-    metaSpan.textContent = `${convo.messageCount} msg${convo.messageCount !== 1 ? 's' : ''}`;
+    metaSpan.textContent = `${c.messageCount} msg${c.messageCount !== 1 ? 's' : ''}`;
 
     textDiv.appendChild(titleSpan);
     textDiv.appendChild(metaSpan);
 
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'convo-delete-btn';
-    deleteBtn.title = 'Delete conversation';
-    deleteBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
-    deleteBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      await handleDeleteConversation(convo.id);
-    });
+    const delBtn = document.createElement('button');
+    delBtn.className = 'convo-delete-btn';
+    delBtn.title = 'Delete';
+    delBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
+    delBtn.addEventListener('click', e => { e.stopPropagation(); handleDeleteConversation(c.id); });
 
     item.appendChild(textDiv);
-    item.appendChild(deleteBtn);
-
-    item.addEventListener('click', () => handleSwitchConversation(convo.id));
+    item.appendChild(delBtn);
+    item.addEventListener('click', () => handleSwitchConversation(c.id));
     conversationList.appendChild(item);
   });
 }
 
-function openSidebar() {
-  sidebar.classList.add('open');
-  sidebarOverlay.classList.add('show');
-  sidebarToggleBtn.classList.add('active');
-}
-
-function closeSidebar() {
-  sidebar.classList.remove('open');
-  sidebarOverlay.classList.remove('show');
-  sidebarToggleBtn.classList.remove('active');
-}
-
-function toggleSidebar() {
-  if (sidebar.classList.contains('open')) {
-    closeSidebar();
-  } else {
-    openSidebar();
-  }
-}
-
-// ==========================================
-// New chat / switch conversation
-// ==========================================
-
+// ─── New Chat / Switch / Delete ───────────────────────────────────────────────
 async function handleNewChat() {
   closeSidebar();
-  // Create a brand-new conversation on the server
   try {
     await userManager.createConversation('New Conversation');
-  } catch (err) {
-    console.error('Failed to create conversation:', err);
-    return;
-  }
-
-  // Reset in-memory history
-  conversationHistory = [
-    { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
-  ];
-
-  // Clear chat UI
-  clearMessagesUI();
-  updateConversationTitle('New Conversation');
-  updateStats(userManager.getCurrentUsername());
-
-  // Refresh sidebar to show the new entry
+  } catch (e) { console.error(e); return; }
+  resetConversation();
+  showEmptyState(true);
   await refreshSidebar();
   userInput.focus();
 }
@@ -181,248 +165,301 @@ async function handleNewChat() {
 async function handleSwitchConversation(id) {
   closeSidebar();
   userManager.switchConversation(id);
-
-  // Reset in-memory history
-  conversationHistory = [
-    { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
-  ];
-
-  await loadChatHistory(userManager.getCurrentUsername());
+  resetConversation();
+  await loadChatHistory();
   await refreshSidebar();
   userInput.focus();
 }
 
 async function handleDeleteConversation(id) {
   if (!confirm('Delete this conversation? This cannot be undone.')) return;
-
   const wasActive = String(userManager.getCurrentConversationId()) === String(id);
   await userManager.deleteConversation(id);
-
   if (wasActive) {
-    // After deletion, ensure a conversation exists
-    userManager.setCurrentConversationId(null);
-    conversationHistory = [
-      { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
-    ];
-    clearMessagesUI();
-    updateConversationTitle('');
+    resetConversation();
+    showEmptyState(true);
     await refreshSidebar();
-
-    // Auto-load newest remaining conversation (if any)
     const remaining = await userManager.getConversations();
-    if (remaining.length > 0) {
-      await handleSwitchConversation(remaining[0].id);
-    } else {
-      // No conversations left — create a fresh one
-      await handleNewChat();
-    }
+    if (remaining.length > 0) await handleSwitchConversation(remaining[0].id);
+    else await handleNewChat();
   } else {
     await refreshSidebar();
   }
 }
 
-// ==========================================
-// Chat loading
-// ==========================================
-
-async function loadChatHistory(username) {
-  clearMessagesUI();
-
+function resetConversation() {
   conversationHistory = [
-    { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
+    { role: 'system', content: 'You are a helpful, concise AI assistant. Use markdown when useful.' }
+  ];
+  injectedContextIds = [];
+  renderChips();
+}
+
+// ─── Load Chat History ────────────────────────────────────────────────────────
+async function loadChatHistory() {
+  clearMessagesUI();
+  conversationHistory = [
+    { role: 'system', content: 'You are a helpful, concise AI assistant. Use markdown when useful.' }
   ];
 
   const history = await userManager.getChatHistoryServer();
-
   if (history.length > 0) {
+    showEmptyState(false);
     history.forEach(msg => {
-      addMessage(msg.content, msg.role);
       if (msg.role !== 'system') {
+        addMessage(msg.content, msg.role);
         conversationHistory.push({ role: msg.role, content: msg.content });
       }
     });
-
-    // Show the conversation title in header
-    const conversations = await userManager.getConversations();
-    const activeId = String(userManager.getCurrentConversationId());
-    const active = conversations.find(c => String(c.id) === activeId);
-    if (active) updateConversationTitle(active.title);
+  } else {
+    showEmptyState(true);
   }
-
-  updateStats(username);
 }
 
 function clearMessagesUI() {
-  // Remove all messages except the initial welcome message
-  const messages = messagesDiv.querySelectorAll('.message');
-  messages.forEach(msg => {
-    if (!msg.textContent.includes('Welcome to AI Assistant')) {
-      msg.remove();
-    }
-  });
-  // If welcome message was removed earlier, re-add it
-  if (messagesDiv.querySelectorAll('.message').length === 0) {
-    const welcome = document.createElement('div');
-    welcome.className = 'message ai';
-    welcome.innerHTML = '<strong>👋 Welcome to AI Assistant!</strong><br><br>I\'m powered by <strong>Llama3</strong>, an advanced language model running locally on Ollama. Start typing to begin our conversation!';
-    messagesDiv.appendChild(welcome);
-  }
+  const rows = messagesDiv.querySelectorAll('.msg-row');
+  rows.forEach(r => r.remove());
 }
 
-function updateConversationTitle(title) {
-  if (conversationTitle) {
-    conversationTitle.textContent = title || '';
-  }
+function showEmptyState(show) {
+  if (!emptyState) return;
+  emptyState.style.display = show ? 'flex' : 'none';
 }
 
-// ==========================================
-// Event listeners
-// ==========================================
-
-function setupEventListeners() {
-  // Theme toggle
-  initTheme();
-  themeToggle.addEventListener('click', toggleTheme);
-
-  // Sidebar toggle
-  sidebarToggleBtn.addEventListener('click', toggleSidebar);
-  sidebarOverlay.addEventListener('click', closeSidebar);
-
-  // New chat button
-  newChatBtn.addEventListener('click', handleNewChat);
-
-  // User menu
-  userMenuBtn.addEventListener('click', toggleUserMenu);
-  logoutBtn.addEventListener('click', handleLogout);
-  clearHistoryBtn.addEventListener('click', handleClearHistory);
-
-  // Chat input
-  userInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
-  sendBtn.addEventListener('click', sendMessage);
-
-  // Close dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.user-menu')) {
-      userDropdown.classList.remove('show');
-      userMenuBtn.classList.remove('active');
-    }
-  });
-}
-
-// Toggle user menu dropdown
-function toggleUserMenu() {
-  userDropdown.classList.toggle('show');
-  userMenuBtn.classList.toggle('active');
-}
-
-// Handle logout
-function handleLogout() {
-  if (confirm('Are you sure you want to logout?')) {
-    userManager.logout();
-    window.location.href = 'login.html';
-  }
-}
-
-// Handle clear history (clears messages of current conversation)
-async function handleClearHistory() {
-  if (confirm('This will delete all messages in the current conversation. Are you sure?')) {
-    const username = userManager.getCurrentUsername();
-    await userManager.clearChatHistoryServer();
-
-    conversationHistory = [
-      { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
-    ];
-
-    clearMessagesUI();
-    updateConversationTitle('New Conversation');
-    updateStats(username);
-    await refreshSidebar();
-
-    addMessage('✨ Chat history cleared! Start a new conversation.', 'ai');
-  }
-}
-
-// ==========================================
-// Theme Management
-// ==========================================
-
-function initTheme() {
-  const savedTheme = localStorage.getItem('theme') || 'light';
-  document.documentElement.setAttribute('data-theme', savedTheme);
-}
-
-function toggleTheme() {
-  const currentTheme = document.documentElement.getAttribute('data-theme');
-  const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', newTheme);
-  localStorage.setItem('theme', newTheme);
-}
-
-// ==========================================
-// Conversation Management
-// ==========================================
-
-let conversationHistory = [
-  { role: "system", content: "You are AI, a helpful and concise assistant. Use brief paragraphs and markdown when useful." }
-];
-
-// Add message to UI
+// ─── Add Message (avatar-row style) ──────────────────────────────────────────
 function addMessage(content, role) {
-  const msgDiv = document.createElement('div');
-  msgDiv.className = `message ${role}`;
+  if (emptyState) emptyState.style.display = 'none';
+
+  const row = document.createElement('div');
+  row.className = `msg-row ${role === 'user' ? 'user-row' : 'ai-row'}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = `msg-avatar ${role === 'user' ? 'user-avatar' : 'ai-avatar'}`;
+  if (role === 'user') {
+    avatar.textContent = (userManager.getCurrentUsername() || 'U').charAt(0).toUpperCase();
+  } else {
+    avatar.innerHTML = `<svg width="16" height="16" viewBox="0 0 41 41" fill="currentColor"><path d="M37.532 16.87a9.963 9.963 0 0 0-.856-8.184 10.078 10.078 0 0 0-10.855-4.835A9.964 9.964 0 0 0 18.306.5a10.079 10.079 0 0 0-9.614 6.977 9.967 9.967 0 0 0-6.664 4.834 10.08 10.08 0 0 0 1.24 11.817 9.965 9.965 0 0 0 .856 8.185 10.079 10.079 0 0 0 10.855 4.835 9.965 9.965 0 0 0 7.516 3.35 10.078 10.078 0 0 0 9.617-6.981 9.967 9.967 0 0 0 6.663-4.834 10.079 10.079 0 0 0-1.243-11.813z"/></svg>`;
+  }
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'msg-content';
 
   if (role === 'typing') {
-    msgDiv.className = 'message ai typing';
-    msgDiv.innerHTML = '<span class="typing-dots"></span>';
+    row.className = 'msg-row ai-row';
+    contentDiv.innerHTML = `<div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>`;
+    row.dataset.typing = 'true';
   } else {
-    // Enhanced markdown rendering for perfect readability
-    let formatted = content
-      // Headers (### Title)
-      .replace(/###\s+(.+?)(?:\n|$)/g, '<strong style="display: block; font-size: 1.1em; margin: 12px 0 8px 0; color: var(--text-primary);">$1</strong>')
-      // Bold (**text**)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      // Italic (*text*)
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      // Code blocks (```code```)
-      .replace(/```([\s\S]+?)```/g, '<code style="display: block; background: var(--input-bg); padding: 12px; border-radius: 8px; margin: 8px 0; font-family: monospace; font-size: 0.9em; overflow-x: auto;">$1</code>')
-      // Inline code (`code`)
-      .replace(/`([^`]+)`/g, '<code style="background: var(--input-bg); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em;">$1</code>')
-      // Bullet points (- item or * item)
-      .replace(/^[\-\*]\s+(.+)$/gm, '<div style="margin-left: 16px; padding-left: 8px; border-left: 2px solid var(--accent); margin: 6px 0;">• $1</div>')
-      // Numbered lists (1. item)
-      .replace(/^\d+\.\s+(.+)$/gm, '<div style="margin-left: 16px; padding-left: 8px; margin: 6px 0;">$1</div>')
-      // Line breaks
-      .replace(/\n\n/g, '<br><br>')
-      .replace(/\n/g, '<br>');
-
-    msgDiv.innerHTML = formatted;
+    contentDiv.innerHTML = renderMarkdown(content);
   }
 
-  messagesDiv.appendChild(msgDiv);
+  row.appendChild(avatar);
+  row.appendChild(contentDiv);
+  messagesDiv.appendChild(row);
 
-  // Smooth scroll to bottom
   setTimeout(() => {
-    messagesDiv.scrollTo({
-      top: messagesDiv.scrollHeight,
-      behavior: 'smooth'
-    });
+    const wrapper = document.getElementById('messagesWrapper');
+    if (wrapper) wrapper.scrollTop = wrapper.scrollHeight;
   }, 50);
+
+  return row;
 }
 
-// Call LLM API
+// ─── Markdown Renderer ────────────────────────────────────────────────────────
+function renderMarkdown(text) {
+  let html = text
+    // Code blocks
+    .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
+      `<pre><code class="lang-${lang}">${escHtml(code.trim())}</code></pre>`)
+    // Inline code
+    .replace(/`([^`\n]+)`/g, (_, c) => `<code>${escHtml(c)}</code>`)
+    // Headings
+    .replace(/^### (.+)$/gm, '<strong style="display:block;font-size:1.05em;margin:12px 0 6px">$1</strong>')
+    .replace(/^## (.+)$/gm, '<strong style="display:block;font-size:1.1em;margin:14px 0 6px">$1</strong>')
+    .replace(/^# (.+)$/gm, '<strong style="display:block;font-size:1.2em;margin:16px 0 8px">$1</strong>')
+    // Bold / italic
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Unordered lists
+    .replace(/^[\-\*] (.+)$/gm, '<li>$1</li>')
+    // Numbered lists
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // Paragraphs / line breaks
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+
+  // Wrap loose <li> in <ul>
+  html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+  return `<p>${html}</p>`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ─── @ Mention Logic ──────────────────────────────────────────────────────────
+function handleInputChange() {
+  const val = userInput.value;
+  const atIdx = val.lastIndexOf('@');
+
+  if (atIdx !== -1) {
+    const afterAt = val.slice(atIdx + 1);
+    // Only trigger if @ is at end or followed by non-space text
+    if (!afterAt.includes(' ') || afterAt.trim() === '') {
+      mentionQuery = afterAt.toLowerCase();
+      mentionActive = true;
+      showMentionDropdown(mentionQuery);
+      return;
+    }
+  }
+
+  if (mentionActive) hideMentionDropdown();
+}
+
+function showMentionDropdown(query) {
+  const filtered = allConversations.filter(c =>
+    c.title && c.title.toLowerCase().includes(query) &&
+    !injectedContextIds.find(x => x.id === c.id)
+  );
+
+  mentionList.innerHTML = '';
+
+  if (!filtered.length) {
+    mentionList.innerHTML = '<div class="mention-empty">No matching conversations</div>';
+  } else {
+    filtered.slice(0, 8).forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'mention-item';
+      item.innerHTML = `
+        <div class="mention-item-icon">💬</div>
+        <div class="mention-item-text">
+          <span class="mention-item-title">${escHtml(c.title)}</span>
+          <span class="mention-item-meta">${c.messageCount} messages</span>
+        </div>`;
+      item.addEventListener('click', () => selectMention(c));
+      mentionList.appendChild(item);
+    });
+  }
+
+  mentionDropdown.classList.add('visible');
+}
+
+function hideMentionDropdown() {
+  mentionActive = false;
+  mentionDropdown.classList.remove('visible');
+  mentionList.innerHTML = '';
+}
+
+async function selectMention(convo) {
+  // Remove the @query from the textarea
+  const val = userInput.value;
+  const atIdx = val.lastIndexOf('@');
+  userInput.value = val.slice(0, atIdx);
+  hideMentionDropdown();
+
+  // Check not already added
+  if (injectedContextIds.find(x => x.id === convo.id)) return;
+
+  injectedContextIds.push({ id: convo.id, title: convo.title });
+  renderChips();
+  userInput.focus();
+}
+
+// ─── Context Chips ────────────────────────────────────────────────────────────
+function renderChips() {
+  contextChipsBar.innerHTML = '';
+  if (!injectedContextIds.length) return;
+
+  injectedContextIds.forEach(ctx => {
+    const chip = document.createElement('div');
+    chip.className = 'context-chip';
+    chip.innerHTML = `
+      <span class="chip-icon">📎</span>
+      <span>${escHtml(ctx.title)}</span>
+      <button class="chip-remove" title="Remove context" data-id="${ctx.id}">✕</button>`;
+    chip.querySelector('.chip-remove').addEventListener('click', () => removeChip(ctx.id));
+    contextChipsBar.appendChild(chip);
+  });
+}
+
+function removeChip(id) {
+  injectedContextIds = injectedContextIds.filter(x => x.id !== id);
+  renderChips();
+}
+
+// ─── Fetch context messages from another session ──────────────────────────────
+async function fetchContextMessages(conversationId) {
+  try {
+    const data = await userManager.apiRequest(`/conversations/${conversationId}`, { method: 'GET' });
+    // Return all user/assistant messages, cap at last 20
+    const msgs = (data.messages || []).filter(m => m.role === 'user' || m.role === 'assistant');
+    return { title: data.title || 'Past Conversation', messages: msgs.slice(-20) };
+  } catch (e) {
+    console.warn('Failed to fetch context for', conversationId, e);
+    return { title: '', messages: [] };
+  }
+}
+
+// ─── Send Message ─────────────────────────────────────────────────────────────
+async function sendMessage() {
+  const text = userInput.value.trim();
+  if (!text) return;
+
+  userInput.value = '';
+  autoResizeTextarea();
+  updateSendBtn();
+
+  addMessage(text, 'user');
+  conversationHistory.push({ role: 'user', content: text });
+
+  // Save user message
+  const newTitle = await userManager.saveChatMessageServer('user', text);
+  if (newTitle) await refreshSidebar();
+
+  await callLLM();
+}
+
+// ─── Call LLM ─────────────────────────────────────────────────────────────────
 async function callLLM() {
   sendBtn.disabled = true;
-  addMessage("", "typing");
+  const typingRow = addMessage('', 'typing');
 
   try {
-    if (!userManager.backendEnabled) {
-      throw new Error('Backend mode is required for this project.');
+    // 1. Base system prompt
+    const messages = [
+      { role: 'system', content: 'You are a helpful, concise AI assistant. Use markdown when useful.' }
+    ];
+
+    // 2. Inject context from other sessions if requested
+    if (injectedContextIds.length > 0) {
+      for (const ctx of injectedContextIds) {
+        const { title, messages: ctxMsgs } = await fetchContextMessages(ctx.id);
+        if (ctxMsgs.length > 0) {
+          // Add a separator/header to mark context transition
+          messages.push({ 
+            role: 'system', 
+            content: `--- START OF CONTEXT FROM CONVERSATION: "${title}" ---` 
+          });
+          
+          // Add the actual message turns
+          ctxMsgs.forEach(m => {
+            messages.push({ role: m.role, content: m.content });
+          });
+
+          messages.push({ 
+            role: 'system', 
+            content: `--- END OF CONTEXT FROM CONVERSATION: "${title}" ---` 
+          });
+        }
+      }
     }
+
+    // 3. Add all user/assistant messages from THIS session
+    // (excluding the initial system message already handled)
+    conversationHistory.forEach((msg, idx) => {
+      if (idx > 0) { // Skip the default system message at [0]
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    });
 
     const backendUrl = API_CONFIG.backendUrl || '/api';
     const resp = await fetch(`${backendUrl}/chat`, {
@@ -431,56 +468,125 @@ async function callLLM() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${userManager.getAuthToken()}`
       },
-      body: JSON.stringify({ messages: conversationHistory, temperature: 0.7, max_tokens: 1024 })
+      body: JSON.stringify({ messages, temperature: 0.7, max_tokens: 2048 })
     });
 
+    typingRow.remove();
+
     if (!resp.ok) {
-      const errText = await resp.text();
-      throw new Error(`Backend Error ${resp.status}: ${errText}`);
+      const err = await resp.text();
+      throw new Error(`Server error ${resp.status}: ${err}`);
     }
 
     const data = await resp.json();
-    document.querySelector('.message.typing')?.remove();
+    const reply = data.choices?.[0]?.message?.content?.trim();
 
-    if (data.choices?.[0]?.message?.content) {
-      const reply = data.choices[0].message.content.trim();
+    if (reply) {
       addMessage(reply, 'ai');
       conversationHistory.push({ role: 'assistant', content: reply });
-
-      const newTitle = await userManager.saveChatMessageServer('assistant', reply);
-      if (newTitle) {
-        updateConversationTitle(newTitle);
-        await refreshSidebar();
-      }
-      updateStats(userManager.getCurrentUsername());
+      const t = await userManager.saveChatMessageServer('assistant', reply);
+      if (t) await refreshSidebar();
     } else {
-      addMessage('Empty response. Check console.', 'ai');
+      addMessage('⚠️ Empty response from model.', 'ai');
     }
   } catch (err) {
-    document.querySelector('.message.typing')?.remove();
-    addMessage('❌ Error: ' + err.message, 'ai');
+    typingRow && typingRow.remove && typingRow.remove();
+    document.querySelectorAll('[data-typing]').forEach(e => e.remove());
+    addMessage(`❌ Error: ${err.message}`, 'ai');
     console.error(err);
   }
+
   sendBtn.disabled = false;
   userInput.focus();
+  updateSendBtn();
 }
 
-// Send message
-async function sendMessage() {
-  const text = userInput.value.trim();
-  if (!text) return;
+// ─── Event Listeners ──────────────────────────────────────────────────────────
+function setupEventListeners() {
+  // Textarea auto-resize + send button state
+  userInput.addEventListener('input', () => {
+    autoResizeTextarea();
+    updateSendBtn();
+    handleInputChange();
+  });
 
-  addMessage(text, 'user');
-  conversationHistory.push({ role: 'user', content: text });
+  // Send on Enter (not Shift+Enter)
+  userInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!sendBtn.disabled) sendMessage();
+    }
+    if (e.key === 'Escape') hideMentionDropdown();
+  });
 
-  // Save user message; server may auto-title the conversation from it
-  const newTitle = await userManager.saveChatMessageServer('user', text);
-  if (newTitle) {
-    updateConversationTitle(newTitle);
-    await refreshSidebar();
+  sendBtn.addEventListener('click', sendMessage);
+
+  // Sidebar
+  sidebarToggleBtn.addEventListener('click', toggleSidebar);
+  sidebarOverlay.addEventListener('click', closeSidebar);
+  newChatBtn.addEventListener('click', handleNewChat);
+
+  // User panel dropdown
+  sidebarMenuBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    sidebarDropdown.classList.toggle('show');
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.sidebar-bottom')) {
+      sidebarDropdown.classList.remove('show');
+    }
+    if (!e.target.closest('.input-inner')) {
+      hideMentionDropdown();
+    }
+  });
+
+  // Theme toggles (topbar + dropdown)
+  themeToggle.addEventListener('click', toggleTheme);
+  themeToggleBtn.addEventListener('click', () => { toggleTheme(); sidebarDropdown.classList.remove('show'); });
+
+  // Clear history
+  clearHistoryBtn.addEventListener('click', handleClearHistory);
+
+  // Logout
+  logoutBtn.addEventListener('click', handleLogout);
+
+  // Suggestion cards
+  document.querySelectorAll('.suggestion-card').forEach(card => {
+    card.addEventListener('click', () => {
+      userInput.value = card.dataset.text;
+      autoResizeTextarea();
+      updateSendBtn();
+      userInput.focus();
+    });
+  });
+}
+
+// ─── Textarea Auto Resize ─────────────────────────────────────────────────────
+function autoResizeTextarea() {
+  userInput.style.height = 'auto';
+  userInput.style.height = Math.min(userInput.scrollHeight, 200) + 'px';
+}
+
+function updateSendBtn() {
+  sendBtn.disabled = !userInput.value.trim();
+}
+
+// ─── Clear History ────────────────────────────────────────────────────────────
+async function handleClearHistory() {
+  if (!confirm('Clear all messages in this conversation?')) return;
+  sidebarDropdown.classList.remove('show');
+  await userManager.clearChatHistoryServer();
+  resetConversation();
+  clearMessagesUI();
+  showEmptyState(true);
+  await refreshSidebar();
+}
+
+// ─── Logout ───────────────────────────────────────────────────────────────────
+function handleLogout() {
+  if (confirm('Log out?')) {
+    userManager.logout();
+    window.location.href = 'login.html';
   }
-  updateStats(userManager.getCurrentUsername());
-
-  userInput.value = '';
-  await callLLM();
 }

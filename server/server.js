@@ -305,18 +305,27 @@ app.post('/api/chat', authRequired, async (req, res) => {
     const { model, messages, temperature, max_tokens } = req.body;
     const usedModel = model || DEFAULT_MODEL;
 
-    const conversationMessages = (messages || []).filter(message => message.role !== 'system');
-    const lastMessage = conversationMessages[conversationMessages.length - 1];
+    const allMessages = messages || [];
 
+    // Separate the system prompt(s) from conversation messages
+    const systemMessages = allMessages.filter(m => m.role === 'system');
+    const conversationMessages = allMessages.filter(m => m.role !== 'system');
+
+    const lastMessage = conversationMessages[conversationMessages.length - 1];
     if (!lastMessage) {
       return res.status(400).json({ error: 'messages are required' });
     }
 
-    // Format messages for Ollama
-    const ollamaMessages = conversationMessages.map(message => ({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
-      content: message.content
-    }));
+    // Build Ollama messages: system prompts first, then user/assistant turns
+    const ollamaMessages = [
+      // Merge all system prompts into Ollama system role entries
+      ...systemMessages.map(m => ({ role: 'system', content: m.content })),
+      // Pass user/assistant messages as-is
+      ...conversationMessages.map(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content
+      }))
+    ];
 
     // Call Ollama API
     const response = await fetch(`${OLLAMA_URL}/api/chat`, {
@@ -328,7 +337,7 @@ app.post('/api/chat', authRequired, async (req, res) => {
         stream: false,
         options: {
           temperature: typeof temperature === 'number' ? temperature : 0.7,
-          num_predict: max_tokens || 1024
+          num_predict: max_tokens || 2048
         }
       })
     });
